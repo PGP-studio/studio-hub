@@ -7,8 +7,8 @@ export type Member = { name: string; login?: string; owns: string; bg: string; f
 
 export const TEAM: Member[] = [
   { name: "George", login: "conx22009", owns: "Shooting, accuracy, training", bg: "#E7ECFB", fg: "#2B44A8" },
-  { name: "Dev B", owns: "Economy, guns, pets, saving", bg: "#E3F3EA", fg: "#1E6B49" },
-  { name: "Dev C", owns: "UI, world, models, sounds", bg: "#FBEDE3", fg: "#9A4A12" },
+  { name: "Dev B", login: "Pexa969", owns: "Economy, guns, pets, saving", bg: "#E3F3EA", fg: "#1E6B49" },
+  { name: "Dev C", login: "SneaXoX", owns: "UI, world, models, sounds", bg: "#FBEDE3", fg: "#9A4A12" },
 ];
 
 export function memberForLogin(login: string): Member | undefined {
