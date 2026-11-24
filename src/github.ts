@@ -46,6 +46,8 @@ export type HubConfig = {
     units: string[];
     progress: { label: string; assetType: string }[];
   };
+  /** Shown on the Overview tab: Team Create place, test places, Roblox group, docs… */
+  links?: { label: string; url: string }[];
 };
 
 export type Milestone = { id: string; title: string };
