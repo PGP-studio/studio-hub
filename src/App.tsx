@@ -300,6 +300,8 @@ function Hub({ viewer }: { viewer: Viewer }) {
             <Workflows
               game={game}
               project={tasksProject}
+              me={`${me}'s Claude`}
+              patch={(fn) => tasks.patch((all) => ({ ...all, [game.repo]: fn(all[game.repo]) }))}
               run={run}
               notify={(text) => setToast({ text })}
               showOnBoard={(n) => {

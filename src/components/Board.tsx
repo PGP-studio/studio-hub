@@ -1,7 +1,9 @@
 import { useState } from "react";
 import type { Run } from "../App";
-import { createTask, removeTask, renameItem, setFields, setIssueClosed, setWorkflow, type Game, type Item, type Project } from "../github";
-import { overlaps, replaceItem, status, STATUSES } from "../lib";
+import { setFields, setIssueClosed, type Game, type Item, type Project } from "../github";
+import { copyCommandFor, overlaps, replaceItem, status, STATUSES } from "../lib";
+import TaskDialog from "./TaskDialog";
+import { promptOf } from "./PromptEditor";
 
 type Props = {
   game: Game;
@@ -33,21 +35,14 @@ export default function Board({ game, project, me, run, notify, patch, workflowF
     });
   };
 
-  // A web page can't open Claude Code, so "Start with Claude" copies the command to paste into it.
-  // Claude then claims the task itself (checking file overlaps first) and opens the branch and PR.
-  const copyCommand = async (command: string) => {
-    try {
-      await navigator.clipboard.writeText(command);
-      notify(`Copied ${command}. Paste it into Claude Code in the ${game.repo} folder.`);
-    } catch {
-      notify(`Type ${command} in Claude Code in the ${game.repo} folder.`);
-    }
-  };
+  const copyCommand = copyCommandFor(game, notify);
 
   const actionFor = (t: Item): [string, () => void] | null => {
     switch (status(t)) {
       case "Ready":
-        return t.number ? ["Start with Claude", () => copyCommand(`/task ${t.number}`)] : null;
+        if (!t.number) return null;
+        // No prompt yet: write one first, so Claude doesn't have to guess.
+        return promptOf(t.body) ? ["Start with Claude", () => copyCommand(`/task ${t.number}`)] : ["Write prompt", () => setEditing(t)];
       case "In progress":
         return ["Send to review", () => update(t, { Status: "In review" }, "Sent to review")];
       case "In review":
@@ -113,6 +108,7 @@ export default function Board({ game, project, me, run, notify, patch, workflowF
                     </div>
                     {t.values["Files"] ? <div className="files">{t.values["Files"]}</div> : null}
                     {clash.length ? <div className="warn">Same files as: {clash.map((c) => c.title).join(", ")}</div> : null}
+                    {col !== "Done" && !promptOf(t.body) ? <div className="no-prompt">No prompt yet</div> : null}
                     <div className="card-actions">
                       {act ? (
                         <button className="act" onClick={act[1]}>
@@ -128,8 +124,8 @@ export default function Board({ game, project, me, run, notify, patch, workflowF
                           Claim
                         </button>
                       ) : null}
-                      <button className="act small-act" onClick={() => setEditing(t)} aria-label={`Edit ${t.title}`}>
-                        Edit
+                      <button className="act small-act" onClick={() => setEditing(t)} aria-label={`Open ${t.title}: prompt and fields`}>
+                        Prompt / edit
                       </button>
                     </div>
                   </article>
@@ -150,212 +146,10 @@ export default function Board({ game, project, me, run, notify, patch, workflowF
           me={myWorker}
           run={run}
           hide={(id) => patch((p) => ({ ...p, items: p.items.filter((i) => i.id !== id) }))}
+          copyCommand={copyCommand}
           onClose={() => setEditing(null)}
         />
       ) : null}
     </>
-  );
-}
-
-function TaskDialog({
-  game,
-  project,
-  task,
-  workflows,
-  defaultWorkflow,
-  me,
-  run,
-  hide,
-  onClose,
-}: {
-  game: Game;
-  project: Project;
-  task: Item | null;
-  workflows: Item[];
-  defaultWorkflow?: number;
-  me: string;
-  run: Run;
-  hide: (itemId: string) => void;
-  onClose: () => void;
-}) {
-  const v = task?.values ?? {};
-  const [title, setTitle] = useState(task?.title ?? "");
-  const [body, setBody] = useState("");
-  const [form, setForm] = useState<Record<string, string>>({
-    Status: v["Status"] || "Ready",
-    System: v["System"] || "",
-    Area: v["Area"] || "",
-    Worker: v["Worker"] || "",
-    Files: v["Files"] || "",
-  });
-  const [wf, setWf] = useState<string>(String(task ? (task.parent ?? "") : (defaultWorkflow ?? "")));
-  const [milestoneId, setMilestoneId] = useState(game.milestones[0]?.id ?? "");
-  const [busy, setBusy] = useState(false);
-  const set = (k: string, val: string) => setForm((f) => ({ ...f, [k]: val }));
-  const options = (name: string) => project.fields[name]?.options?.map((o) => o.name) ?? [];
-  const units = options("Area").length ? options("Area") : game.config.structure.units;
-  const systems = options("System").length ? options("System") : game.config.systems;
-
-  const save = async () => {
-    if (!title.trim()) return;
-    setBusy(true);
-    let ok: boolean;
-    if (!task) {
-      const values = Object.fromEntries(Object.entries(form).filter(([, x]) => x));
-      const workflow = workflows.find((w) => String(w.number) === wf) ?? null;
-      ok = await run("Task created", () => createTask(game, project, { title: title.trim(), body, milestoneId, values, workflow }));
-    } else {
-      const changed = Object.fromEntries(Object.entries(form).filter(([k, x]) => x !== (v[k] || "")));
-      ok = await run("Task saved", async () => {
-        if (title.trim() !== task.title) await renameItem(task, title.trim());
-        await setFields(project, task.id, changed);
-        const shouldClose = form.Status === "Done";
-        if (task.kind === "issue" && shouldClose !== !!task.closed && "Status" in changed) await setIssueClosed(task, shouldClose);
-        if (wf !== String(task.parent ?? "")) {
-          const from = workflows.find((w) => w.number === task.parent) ?? null;
-          const to = workflows.find((w) => String(w.number) === wf) ?? null;
-          await setWorkflow(task, from, to);
-        }
-      });
-    }
-    setBusy(false);
-    if (ok) onClose();
-  };
-
-  const deleteTask = async () => {
-    if (!task) return;
-    if (!confirm(`Delete "${task.title}"?\n\nIts issue is closed as "not planned" and it leaves the board. You can reopen the issue on GitHub if this was a mistake.`)) return;
-    setBusy(true);
-    hide(task.id);
-    const ok = await run("Task deleted", () => removeTask(project, task));
-    setBusy(false);
-    if (ok) onClose();
-  };
-
-  const closeTask = async () => {
-    if (!task) return;
-    setBusy(true);
-    const closing = !task.closed;
-    const ok = await run(closing ? "Task closed" : "Task reopened", async () => {
-      await setIssueClosed(task, closing);
-      if (closing && form.Status !== "Done") await setFields(project, task.id, { Status: "Done" });
-    });
-    setBusy(false);
-    if (ok) onClose();
-  };
-
-  return (
-    <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="dialog" role="dialog" aria-label={task ? "Edit task" : "New task"}>
-        <h2>{task ? "Edit task" : `New task in ${game.config.name}`}</h2>
-        <label className="form-row">
-          <span>Title</span>
-          <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
-        </label>
-        {!task ? (
-          <label className="form-row">
-            <span>Description (optional)</span>
-            <textarea className="input" rows={3} value={body} onChange={(e) => setBody(e.target.value)} />
-          </label>
-        ) : null}
-        <div className="form-grid">
-          <label className="form-row">
-            <span>Status</span>
-            <select className="input" value={form.Status} onChange={(e) => set("Status", e.target.value)}>
-              {STATUSES.map((s) => (
-                <option key={s}>{s}</option>
-              ))}
-            </select>
-          </label>
-          <label className="form-row">
-            <span>System</span>
-            <select className="input" value={form.System} onChange={(e) => set("System", e.target.value)}>
-              <option value="">—</option>
-              {systems.map((s) => (
-                <option key={s}>{s}</option>
-              ))}
-            </select>
-          </label>
-          <label className="form-row">
-            <span>{game.config.structure.label.replace(/s$/, "")}</span>
-            <select className="input" value={form.Area} onChange={(e) => set("Area", e.target.value)}>
-              <option value="">whole game</option>
-              {units.map((s) => (
-                <option key={s}>{s}</option>
-              ))}
-            </select>
-          </label>
-          {!task ? (
-            <label className="form-row">
-              <span>Milestone</span>
-              <select className="input" value={milestoneId} onChange={(e) => setMilestoneId(e.target.value)}>
-                <option value="">none</option>
-                {game.milestones.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.title}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : (
-            <label className="form-row">
-              <span>Milestone</span>
-              <input className="input" value={v["Milestone"] || "none"} disabled />
-            </label>
-          )}
-        </div>
-        <label className="form-row">
-          <span>Workflow</span>
-          <select className="input" value={wf} onChange={(e) => setWf(e.target.value)}>
-            <option value="">No workflow</option>
-            {workflows.map((w) => (
-              <option key={w.id} value={String(w.number)}>
-                {w.title}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="form-row">
-          <span>Worker</span>
-          <div style={{ display: "flex", gap: 6 }}>
-            <input className="input" style={{ flex: 1 }} value={form.Worker} placeholder="Nobody yet" onChange={(e) => set("Worker", e.target.value)} />
-            <button className="btn" type="button" onClick={() => set("Worker", me)}>
-              Me
-            </button>
-          </div>
-        </label>
-        <label className="form-row">
-          <span>Files (comma separated; folder/* for a whole folder)</span>
-          <input className="input mono" value={form.Files} onChange={(e) => set("Files", e.target.value)} />
-        </label>
-        <div className="dialog-actions">
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            {task ? (
-              <button className="btn danger" disabled={busy} onClick={deleteTask}>
-                Delete
-              </button>
-            ) : null}
-            {task?.kind === "issue" ? (
-              <>
-                <button className="btn" disabled={busy} onClick={closeTask}>
-                  {task.closed ? "Reopen issue" : "Close issue"}
-                </button>
-                <a className="small" href={task.url} target="_blank" rel="noreferrer">
-                  Open #{task.number}
-                </a>
-              </>
-            ) : null}
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button className="btn" onClick={onClose}>
-              Cancel
-            </button>
-            <button className="btn-primary" disabled={busy || !title.trim()} onClick={save}>
-              {busy ? "Saving…" : task ? "Save" : "Create task"}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
   );
 }

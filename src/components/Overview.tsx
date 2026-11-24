@@ -1,8 +1,8 @@
-import { type ReactNode } from "react";
 import { ORG, type Game, type Project } from "../github";
 import { fetchOverview, type PR } from "../overview";
 import { usePoll } from "../usePoll";
 import { isBuilt, pill, status, STATUSES } from "../lib";
+import Markdown from "./Markdown";
 
 /** A game's home: what it is, where everything lives, how far along it is, and what's waiting for review. */
 export default function Overview({ game, tasks, assets }: { game: Game; tasks: Project; assets: Project | null }) {
@@ -187,27 +187,4 @@ function PRList({ prs, empty }: { prs?: PR[]; empty: string }) {
       ))}
     </ul>
   );
-}
-
-/** Just enough markdown for a description: paragraphs, "- " bullets, **bold**, `code`. */
-function Markdown({ text }: { text: string }) {
-  const inline = (s: string): ReactNode[] =>
-    s.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).map((part, i) =>
-      part.startsWith("**") ? <b key={i}>{part.slice(2, -2)}</b> : part.startsWith("`") ? <code key={i}>{part.slice(1, -1)}</code> : part,
-    );
-  const blocks: ReactNode[] = [];
-  let bullets: string[] = [];
-  const flush = () => {
-    if (bullets.length) blocks.push(<ul key={blocks.length}>{bullets.map((b, i) => <li key={i}>{inline(b)}</li>)}</ul>);
-    bullets = [];
-  };
-  for (const line of text.split("\n")) {
-    if (/^\s*[-*] /.test(line)) bullets.push(line.replace(/^\s*[-*] /, ""));
-    else {
-      flush();
-      if (line.trim()) blocks.push(<p key={blocks.length}>{inline(line)}</p>);
-    }
-  }
-  flush();
-  return <div className="md">{blocks}</div>;
 }
