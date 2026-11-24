@@ -2,7 +2,7 @@
 // The ElevenLabs key stays here (Vercel env ELEVENLABS_API_KEY). Only signed-in members of the
 // PGP-studio organization may call it, so nobody else can spend the studio's credits.
 
-import { generate, validate } from "./_elevenlabs";
+import { generate, validate } from "./_elevenlabs.js"; // ".js": Vercel runs functions as ES modules, which need the extension
 
 export const config = { maxDuration: 60 };
 
