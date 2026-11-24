@@ -9,6 +9,7 @@ import Areas from "./components/Areas";
 import SidePanel from "./components/SidePanel";
 
 const POLL_MS = 10_000;
+const ASSETS_POLL_MS = 30_000;
 const LAST_GAME = "hub.lastGame";
 type Tab = "board" | "assets" | "areas";
 
@@ -80,10 +81,13 @@ function Hub({ viewer }: { viewer: Viewer }) {
   );
   const tasks = usePoll(loadTasks, POLL_MS, tasksKey);
 
-  // Assets of the picked game: every 10 s on the screens that show them, else every minute.
+  // Assets of the picked game. A full load of ~750 items costs ~9 GraphQL points, so poll it
+  // every 30 s on the screens that show it and every 5 min otherwise (GitHub allows 5000/hour).
+  // Your own edits still show at once.
   const assetsNum = game?.config.assetsProject;
   const loadAssets = useMemo(() => (assetsNum ? () => fetchProject(assetsNum) : null), [assetsNum]);
-  const assets = usePoll(loadAssets, tab === "board" ? 60_000 : POLL_MS, `${game?.repo}:${assetsNum}:${tab === "board"}`);
+  const assetsVisible = tab !== "board";
+  const assets = usePoll(loadAssets, assetsVisible ? ASSETS_POLL_MS : 300_000, `${game?.repo}:${assetsNum}:${assetsVisible}`);
 
   useEffect(() => {
     if (!toast) return;
