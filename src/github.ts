@@ -1,5 +1,7 @@
 // Everything the hub knows lives in GitHub. This file is the only place that talks to it.
 
+import { configRef } from "./auth";
+
 export const ORG = "PGP-studio";
 export const WORKFLOW_LABEL = "workflow";
 
@@ -99,9 +101,9 @@ type RepoNode = {
 
 /** Games = repos in the org with the topic `game` and a hub.config.json. */
 export async function fetchGames(): Promise<Game[]> {
-  // Read hub.config.json from the default branch. VITE_HUB_CONFIG_REF (in .env.local) lets you
-  // try a config that's still on a branch, e.g. VITE_HUB_CONFIG_REF=my-branch.
-  const expr = `${import.meta.env.VITE_HUB_CONFIG_REF || "HEAD"}:hub.config.json`;
+  // Read hub.config.json from the default branch, or from a branch set with VITE_HUB_CONFIG_REF
+  // (.env.local) or HUB_CONFIG_REF (Vercel) to try a config that isn't merged yet.
+  const expr = `${configRef()}:hub.config.json`;
   const d = await gql<{ organization: { repositories: { nodes: RepoNode[] } } }>(
     `query($org:String!, $expr:String!){ organization(login:$org){ repositories(first:100, orderBy:{field:CREATED_AT, direction:ASC}){ nodes{
       name id url isArchived

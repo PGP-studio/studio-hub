@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { fetchGames, fetchProject, fetchViewer, type Game, type Project, type Viewer } from "./github";
 import { usePoll } from "./usePoll";
-import { finishSignIn, hasToken, signIn, signOut, usesDevProxy } from "./auth";
+import { finishSignIn, hasToken, loadSettings, signIn, signOut, usesDevProxy } from "./auth";
 import { status } from "./lib";
 import { memberForLogin } from "./team";
 import Board from "./components/Board";
@@ -24,6 +24,7 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
+      await loadSettings();
       if (!usesDevProxy) {
         const err = await finishSignIn();
         if (err) setError(err);

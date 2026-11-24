@@ -1,17 +1,35 @@
 // GitHub sign-in (OAuth App). The token lives in sessionStorage: it's gone when the tab closes.
 // Local dev (`npm run dev`) skips sign-in: the dev server proxies GitHub with your own token.
+// The deployed app gets its client ID from GET /api/oauth (see api/oauth.ts).
 
 const TOKEN_KEY = "gh_token";
 const STATE_KEY = "gh_oauth_state";
 // repo: issues in private game repos; read:org: membership check; project: Projects read/write.
 const SCOPES = "repo read:org project";
 
-export const usesDevProxy = import.meta.env.DEV && !import.meta.env.VITE_GITHUB_CLIENT_ID;
+export const usesDevProxy = import.meta.env.DEV;
+
+// Public settings from the Vercel function (GET /api/oauth), so nothing has to be baked into
+// the page at build time: the client ID and an optional hub.config.json branch.
+let settings = { clientId: "", configRef: "" };
+
+export async function loadSettings(): Promise<void> {
+  if (usesDevProxy) return;
+  try {
+    const res = await fetch("/api/oauth");
+    if (res.ok) settings = { ...settings, ...(await res.json()) };
+  } catch {
+    /* sign-in will report it */
+  }
+}
+
+/** Git ref to read games' hub.config.json from: .env.local in dev, HUB_CONFIG_REF on Vercel, else HEAD. */
+export const configRef = () => import.meta.env.VITE_HUB_CONFIG_REF || settings.configRef || "HEAD";
 
 export function signIn(): void {
-  const clientId = import.meta.env.VITE_GITHUB_CLIENT_ID;
+  const clientId = settings.clientId;
   if (!clientId) {
-    alert("Sign-in isn't set up: VITE_GITHUB_CLIENT_ID is missing.");
+    alert("Sign-in isn't set up: GITHUB_CLIENT_ID is missing in Vercel.");
     return;
   }
   const state = crypto.randomUUID();
