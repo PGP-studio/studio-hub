@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { fetchGames, fetchProject, fetchViewer, type Game, type Project, type Viewer } from "./github";
 import { usePoll } from "./usePoll";
+import { finishSignIn, hasToken, signIn, signOut, usesDevProxy } from "./auth";
 import { status } from "./lib";
 import { memberForLogin } from "./team";
 import Board from "./components/Board";
@@ -18,16 +19,54 @@ export type Run = (label: string, fn: () => Promise<void>) => Promise<boolean>;
 
 export default function App() {
   const [viewer, setViewer] = useState<Viewer | null>(null);
-  const [viewerError, setViewerError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [needsSignIn, setNeedsSignIn] = useState(false);
+
   useEffect(() => {
-    fetchViewer().then(setViewer, (e) => setViewerError(String(e.message ?? e)));
+    (async () => {
+      if (!usesDevProxy) {
+        const err = await finishSignIn();
+        if (err) setError(err);
+        if (!hasToken()) {
+          setNeedsSignIn(true);
+          return;
+        }
+      }
+      try {
+        setViewer(await fetchViewer());
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (/GitHub 401/.test(msg) && !usesDevProxy) {
+          // Token expired or was revoked: sign in again.
+          sessionStorage.removeItem("gh_token");
+          setNeedsSignIn(true);
+        } else {
+          setError(msg);
+        }
+      }
+    })();
   }, []);
 
-  if (viewerError) {
+  if (needsSignIn) {
     return (
       <div className="center">
         <h1>Studio hub</h1>
-        <p className="sub">Couldn't reach GitHub: {viewerError}</p>
+        <p className="sub">Tasks, assets and areas for every PGP-studio game, synced from GitHub.</p>
+        {error ? <p className="warn">{error}</p> : null}
+        <div>
+          <button className="btn-primary" onClick={signIn}>
+            Sign in with GitHub
+          </button>
+        </div>
+        <p className="small">Only members of the PGP-studio organization can use the hub.</p>
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="center">
+        <h1>Studio hub</h1>
+        <p className="sub">Couldn't reach GitHub: {error}</p>
       </div>
     );
   }
@@ -38,6 +77,13 @@ export default function App() {
         <h1>Studio hub</h1>
         <p>You're signed in as {viewer.login}, but you're not in the studio's GitHub organization.</p>
         <p className="sub">Ask George to add you to the organization.</p>
+        {!usesDevProxy ? (
+          <div>
+            <button className="btn" onClick={signOut}>
+              Sign out
+            </button>
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -201,6 +247,12 @@ function Hub({ viewer }: { viewer: Viewer }) {
           <a className="small" href={game.url} target="_blank" rel="noreferrer">
             {game.repo} on GitHub
           </a>
+        ) : null}
+        <span className="small">· {viewer.login}</span>
+        {!usesDevProxy ? (
+          <button className="row-del" onClick={signOut}>
+            Sign out
+          </button>
         ) : null}
       </nav>
 
