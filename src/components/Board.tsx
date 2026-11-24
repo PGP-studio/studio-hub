@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Run } from "../App";
-import { createTask, renameItem, setFields, setIssueClosed, type Game, type Item, type Project } from "../github";
+import { createTask, removeTask, renameItem, setFields, setIssueClosed, type Game, type Item, type Project } from "../github";
 import { overlaps, replaceItem, status, STATUSES } from "../lib";
 
 type Props = { game: Game; project: Project; me: string; run: Run; patch: (fn: (p: Project) => Project) => void };
@@ -71,11 +71,16 @@ export default function Board({ game, project, me, run, patch }: Props) {
                     </div>
                     {t.values["Files"] ? <div className="files">{t.values["Files"]}</div> : null}
                     {clash.length ? <div className="warn">Same files as: {clash.map((c) => c.title).join(", ")}</div> : null}
-                    {act ? (
-                      <button className="act" onClick={act[1]}>
-                        {act[0]}
+                    <div className="card-actions">
+                      {act ? (
+                        <button className="act" onClick={act[1]}>
+                          {act[0]}
+                        </button>
+                      ) : null}
+                      <button className="act small-act" onClick={() => setEditing(t)} aria-label={`Edit ${t.title}`}>
+                        Edit
                       </button>
-                    ) : null}
+                    </div>
                   </article>
                 );
               })}
@@ -91,6 +96,7 @@ export default function Board({ game, project, me, run, patch }: Props) {
           task={editing === "new" ? null : editing}
           me={myWorker}
           run={run}
+          hide={(id) => patch((p) => ({ ...p, items: p.items.filter((i) => i.id !== id) }))}
           onClose={() => setEditing(null)}
         />
       ) : null}
@@ -104,6 +110,7 @@ function TaskDialog({
   task,
   me,
   run,
+  hide,
   onClose,
 }: {
   game: Game;
@@ -111,6 +118,7 @@ function TaskDialog({
   task: Item | null;
   me: string;
   run: Run;
+  hide: (itemId: string) => void;
   onClose: () => void;
 }) {
   const v = task?.values ?? {};
@@ -146,6 +154,16 @@ function TaskDialog({
         if (task.kind === "issue" && shouldClose !== !!task.closed && "Status" in changed) await setIssueClosed(task, shouldClose);
       });
     }
+    setBusy(false);
+    if (ok) onClose();
+  };
+
+  const deleteTask = async () => {
+    if (!task) return;
+    if (!confirm(`Delete "${task.title}"?\n\nIts issue is closed as "not planned" and it leaves the board. You can reopen the issue on GitHub if this was a mistake.`)) return;
+    setBusy(true);
+    hide(task.id);
+    const ok = await run("Task deleted", () => removeTask(project, task));
     setBusy(false);
     if (ok) onClose();
   };
@@ -237,6 +255,11 @@ function TaskDialog({
         </label>
         <div className="dialog-actions">
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            {task ? (
+              <button className="btn danger" disabled={busy} onClick={deleteTask}>
+                Delete
+              </button>
+            ) : null}
             {task?.kind === "issue" ? (
               <>
                 <button className="btn" disabled={busy} onClick={closeTask}>

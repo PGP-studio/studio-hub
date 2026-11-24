@@ -238,6 +238,23 @@ export async function renameItem(item: Item, title: string): Promise<void> {
   }
 }
 
+/** Remove an item from a project. For a draft (assets) this deletes it for good. */
+export async function deleteItem(project: Project, item: Item): Promise<void> {
+  await gql(`mutation($p:ID!,$i:ID!){ deleteProjectV2Item(input:{projectId:$p, itemId:$i}){ deletedItemId } }`, { p: project.id, i: item.id });
+}
+
+/**
+ * "Delete" a task: close its issue as not planned and take it off the board.
+ * The issue itself stays in the repo (reopen it there if it was a mistake); really
+ * deleting issues is admin-only and permanent, so the hub never does that.
+ */
+export async function removeTask(project: Project, item: Item): Promise<void> {
+  if (item.kind === "issue" && !item.closed) {
+    await gql(`mutation($id:ID!){ closeIssue(input:{issueId:$id, stateReason:NOT_PLANNED}){ clientMutationId } }`, { id: item.contentId });
+  }
+  await deleteItem(project, item);
+}
+
 export async function setIssueClosed(item: Item, closed: boolean): Promise<void> {
   if (item.kind !== "issue") return;
   const m = closed ? "closeIssue(input:{issueId:$id})" : "reopenIssue(input:{issueId:$id})";
