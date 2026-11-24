@@ -275,6 +275,12 @@ export async function setFields(project: Project, itemId: string, values: Record
   for (const [k, v] of Object.entries(values)) await setField(project, itemId, k, v);
 }
 
+/** Replace a draft item's description (Assets board: the asset's description). */
+export async function setDraftBody(item: Item, body: string): Promise<void> {
+  if (item.kind !== "draft") return;
+  await gql(`mutation($id:ID!,$b:String!){ updateProjectV2DraftIssue(input:{draftIssueId:$id, body:$b}){ draftIssue{ id } } }`, { id: item.contentId, b: body });
+}
+
 /** Replace an issue's description: for tasks and workflows, that's their prompt. */
 export async function setIssueBody(item: Item, body: string): Promise<void> {
   if (item.kind !== "issue") return;
