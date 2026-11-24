@@ -3,9 +3,16 @@ import type { Run } from "../App";
 import { createTask, removeTask, renameItem, setFields, setIssueClosed, type Game, type Item, type Project } from "../github";
 import { overlaps, replaceItem, status, STATUSES } from "../lib";
 
-type Props = { game: Game; project: Project; me: string; run: Run; patch: (fn: (p: Project) => Project) => void };
+type Props = {
+  game: Game;
+  project: Project;
+  me: string;
+  run: Run;
+  notify: (text: string) => void;
+  patch: (fn: (p: Project) => Project) => void;
+};
 
-export default function Board({ game, project, me, run, patch }: Props) {
+export default function Board({ game, project, me, run, notify, patch }: Props) {
   const [editing, setEditing] = useState<Item | "new" | null>(null);
   const tasks = project.items;
   const myWorker = `${me}'s Claude`;
@@ -19,10 +26,21 @@ export default function Board({ game, project, me, run, patch }: Props) {
     });
   };
 
+  // A web page can't open Claude Code, so "Start with Claude" copies the command to paste into it.
+  // Claude then claims the task itself (checking file overlaps first) and opens the branch and PR.
+  const copyCommand = async (command: string) => {
+    try {
+      await navigator.clipboard.writeText(command);
+      notify(`Copied ${command}. Paste it into Claude Code in the ${game.repo} folder.`);
+    } catch {
+      notify(`Type ${command} in Claude Code in the ${game.repo} folder.`);
+    }
+  };
+
   const actionFor = (t: Item): [string, () => void] | null => {
     switch (status(t)) {
       case "Ready":
-        return ["Claim for my Claude", () => update(t, { Status: "In progress", Worker: t.values["Worker"] || myWorker }, "Claimed")];
+        return t.number ? ["Start with Claude", () => copyCommand(`/task ${t.number}`)] : null;
       case "In progress":
         return ["Send to review", () => update(t, { Status: "In review" }, "Sent to review")];
       case "In review":
@@ -38,9 +56,14 @@ export default function Board({ game, project, me, run, patch }: Props) {
         <span className="small">
           {tasks.length} tasks in {game.config.name} · Tasks. Click a title to edit.
         </span>
-        <button className="btn-primary" onClick={() => setEditing("new")}>
-          New task
-        </button>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button className="btn" title="Claude picks the next Ready task from your workflow and starts it" onClick={() => copyCommand("/next-task")}>
+            Next task with Claude
+          </button>
+          <button className="btn-primary" onClick={() => setEditing("new")}>
+            New task
+          </button>
+        </div>
       </div>
       <div className="columns">
         {STATUSES.map((col) => {
@@ -75,6 +98,15 @@ export default function Board({ game, project, me, run, patch }: Props) {
                       {act ? (
                         <button className="act" onClick={act[1]}>
                           {act[0]}
+                        </button>
+                      ) : null}
+                      {col === "Ready" ? (
+                        <button
+                          className="act small-act"
+                          title="Mark it as yours without starting Claude (e.g. working by hand)"
+                          onClick={() => update(t, { Status: "In progress", Worker: t.values["Worker"] || myWorker }, "Claimed")}
+                        >
+                          Claim
                         </button>
                       ) : null}
                       <button className="act small-act" onClick={() => setEditing(t)} aria-label={`Edit ${t.title}`}>
