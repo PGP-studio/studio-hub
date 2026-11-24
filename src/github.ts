@@ -74,6 +74,7 @@ export type Item = {
   values: Record<string, string>; // field name -> text or option name
   labels: string[];
   parent?: number; // workflow (parent issue) number
+  subIssues: number[]; // for a workflow: its tasks' issue numbers, in sub-issue order
   isWorkflow: boolean; // issue labelled `workflow`; its tasks are sub-issues
 };
 
@@ -140,7 +141,7 @@ const PROJECT_QUERY = `query($org:String!, $num:Int!, $after:String){ organizati
       id isArchived
       content{
         __typename
-        ... on Issue{ id number title url closed body labels(first:10){ nodes{ name } } parent{ number } }
+        ... on Issue{ id number title url closed body labels(first:10){ nodes{ name } } parent{ number } subIssues(first:50){ nodes{ number } } }
         ... on DraftIssue{ id title body }
       }
       fieldValues(first:20){ nodes{
@@ -167,6 +168,7 @@ type RawItem = {
     body: string;
     labels?: { nodes: { name: string }[] };
     parent?: { number: number } | null;
+    subIssues?: { nodes: { number: number }[] };
   } | null;
   fieldValues: { nodes: RawValue[] };
 };
@@ -212,6 +214,7 @@ export async function fetchProject(number: number): Promise<Project> {
         values,
         labels: c.labels?.nodes.map((l) => l.name) ?? [],
         parent: c.parent?.number,
+        subIssues: c.subIssues?.nodes.map((n) => n.number) ?? [],
         isWorkflow: !!c.labels?.nodes.some((l) => l.name === WORKFLOW_LABEL),
       });
     }
@@ -249,6 +252,12 @@ export async function setField(project: Project, itemId: string, fieldName: stri
 
 export async function setFields(project: Project, itemId: string, values: Record<string, string>): Promise<void> {
   for (const [k, v] of Object.entries(values)) await setField(project, itemId, k, v);
+}
+
+/** Replace an issue's description: for tasks and workflows, that's their prompt. */
+export async function setIssueBody(item: Item, body: string): Promise<void> {
+  if (item.kind !== "issue") return;
+  await gql(`mutation($id:ID!,$b:String!){ updateIssue(input:{id:$id, body:$b}){ clientMutationId } }`, { id: item.contentId, b: body });
 }
 
 export async function renameItem(item: Item, title: string): Promise<void> {

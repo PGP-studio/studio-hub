@@ -1,4 +1,4 @@
-import type { Item, Project } from "./github";
+import type { Game, Item, Project } from "./github";
 
 export const STATUSES = ["Ready", "In progress", "In review", "Done"] as const;
 
@@ -48,4 +48,19 @@ export function isBuilt(assetStatus: string, statuses: string[]): boolean {
 
 export function replaceItem(p: Project, id: string, fn: (i: Item) => Item): Project {
   return { ...p, items: p.items.map((i) => (i.id === id ? fn(i) : i)) };
+}
+
+/**
+ * A web page can't open Claude Code, so "… with Claude" buttons copy the command to paste into it.
+ * Claude then does the rest itself (claims, checks file overlaps, opens the branch and PR).
+ */
+export function copyCommandFor(game: Game, notify: (text: string) => void) {
+  return async (command: string) => {
+    try {
+      await navigator.clipboard.writeText(command);
+      notify(`Copied ${command}. Paste it into Claude Code in the ${game.repo} folder.`);
+    } catch {
+      notify(`Type ${command} in Claude Code in the ${game.repo} folder.`);
+    }
+  };
 }
