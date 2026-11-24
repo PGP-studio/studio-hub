@@ -10,11 +10,12 @@ import Areas from "./components/Areas";
 import SidePanel from "./components/SidePanel";
 import Workflows from "./components/Workflows";
 import NewGameDialog from "./components/NewGameDialog";
+import Overview from "./components/Overview";
 
 const POLL_MS = 10_000;
 const ASSETS_POLL_MS = 30_000;
 const LAST_GAME = "hub.lastGame";
-type Tab = "board" | "workflows" | "assets" | "areas";
+type Tab = "overview" | "board" | "workflows" | "assets" | "areas";
 
 export type Run = (label: string, fn: () => Promise<void>) => Promise<boolean>;
 
@@ -101,7 +102,7 @@ function Hub({ viewer }: { viewer: Viewer }) {
       return null;
     }
   });
-  const [tab, setTab] = useState<Tab>("board");
+  const [tab, setTab] = useState<Tab>("overview");
   const [workflowFilter, setWorkflowFilter] = useState("");
   const [creatingGame, setCreatingGame] = useState(false);
   const [toast, setToast] = useState<{ text: string; err?: boolean } | null>(null);
@@ -206,6 +207,7 @@ function Hub({ viewer }: { viewer: Viewer }) {
   const unitLabel = game?.config.structure.label ?? "Areas";
   const units = game?.config.structure.units.length ?? 0;
   const tabs: [Tab, string][] = [
+    ["overview", "Overview"],
     ["board", "Tasks board"],
     ["workflows", "Workflows"],
     ["assets", "Assets"],
@@ -282,6 +284,8 @@ function Hub({ viewer }: { viewer: Viewer }) {
         <main className="main">
           {!game || !tasksProject ? (
             <p className="empty">Loading tasks…</p>
+          ) : tab === "overview" ? (
+            <Overview game={game} tasks={tasksProject} assets={assets.data} />
           ) : tab === "board" ? (
             <Board
               game={game}
