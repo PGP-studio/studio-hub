@@ -91,7 +91,7 @@ function Hub({ viewer }: { viewer: Viewer }) {
 
   useEffect(() => {
     if (!toast) return;
-    const t = setTimeout(() => setToast(null), toast.err ? 8000 : 2500);
+    const t = setTimeout(() => setToast(null), toast.err ? 8000 : 4500);
     return () => clearTimeout(t);
   }, [toast]);
 
@@ -206,7 +206,7 @@ function Hub({ viewer }: { viewer: Viewer }) {
           {!game || !tasksProject ? (
             <p className="empty">Loading tasks…</p>
           ) : tab === "board" ? (
-            <Board game={game} project={tasksProject} me={me} run={run} patch={(fn) => tasks.patch((all) => ({ ...all, [game.repo]: fn(all[game.repo]) }))} />
+            <Board game={game} project={tasksProject} me={me} run={run} notify={(text) => setToast({ text })} patch={(fn) => tasks.patch((all) => ({ ...all, [game.repo]: fn(all[game.repo]) }))} />
           ) : !assets.data ? (
             <p className="empty">Loading assets…</p>
           ) : tab === "assets" ? (
