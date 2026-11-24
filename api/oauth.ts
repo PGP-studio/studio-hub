@@ -2,13 +2,14 @@
 // The client secret stays here, in Vercel's environment variables, never in the repo or the browser.
 //
 // Env (set in Vercel → Project → Settings → Environment Variables):
-//   GITHUB_CLIENT_ID      the OAuth App's client ID (public; also set as VITE_GITHUB_CLIENT_ID)
-//   GITHUB_CLIENT_SECRET  the OAuth App's client secret
+//   VITE_GITHUB_CLIENT_ID  the OAuth App's client ID (public; the page uses it too)
+//   GITHUB_CLIENT_SECRET   the OAuth App's client secret
+//   GITHUB_CLIENT_ID       optional; overrides VITE_GITHUB_CLIENT_ID here
 
 export async function POST(request: Request): Promise<Response> {
-  const clientId = process.env.GITHUB_CLIENT_ID;
+  const clientId = process.env.GITHUB_CLIENT_ID || process.env.VITE_GITHUB_CLIENT_ID;
   const clientSecret = process.env.GITHUB_CLIENT_SECRET;
-  if (!clientId || !clientSecret) return json({ error: "Sign-in isn't set up: GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET missing in Vercel." }, 500);
+  if (!clientId || !clientSecret) return json({ error: "Sign-in isn't set up: VITE_GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET missing in Vercel." }, 500);
 
   let code: unknown;
   try {
