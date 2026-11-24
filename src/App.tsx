@@ -9,6 +9,7 @@ import Assets from "./components/Assets";
 import Areas from "./components/Areas";
 import SidePanel from "./components/SidePanel";
 import Workflows from "./components/Workflows";
+import NewGameDialog from "./components/NewGameDialog";
 
 const POLL_MS = 10_000;
 const ASSETS_POLL_MS = 30_000;
@@ -102,6 +103,7 @@ function Hub({ viewer }: { viewer: Viewer }) {
   });
   const [tab, setTab] = useState<Tab>("board");
   const [workflowFilter, setWorkflowFilter] = useState("");
+  const [creatingGame, setCreatingGame] = useState(false);
   const [toast, setToast] = useState<{ text: string; err?: boolean } | null>(null);
 
   const game: Game | undefined = games.data?.find((g) => g.repo === repo) ?? games.data?.[0];
@@ -174,11 +176,29 @@ function Hub({ viewer }: { viewer: Viewer }) {
 
   const error = games.error || tasks.error || assets.error;
 
+  const newGameDialog = creatingGame ? (
+    <NewGameDialog
+      onClose={() => setCreatingGame(false)}
+      onCreated={async (slug) => {
+        setCreatingGame(false);
+        await games.refresh();
+        pick(slug);
+        setToast({ text: `Created ${slug}. Fill in "The game" in its CLAUDE.md and its areas in hub.config.json.` });
+      }}
+    />
+  ) : null;
+
   if (games.data && !games.data.length) {
     return (
       <div className="center">
         <h1>Studio hub</h1>
         <p className="sub">No games yet. A game is a repo in the organization with the topic “game” and a hub.config.json.</p>
+        <div>
+          <button className="btn-primary" onClick={() => setCreatingGame(true)}>
+            New game
+          </button>
+        </div>
+        {newGameDialog}
       </div>
     );
   }
@@ -207,7 +227,7 @@ function Hub({ viewer }: { viewer: Viewer }) {
               </select>
             ) : null}
             <h1>{game ? `${game.config.name} hub` : "Studio hub"}</h1>
-            <button className="btn" disabled title="Coming in step 5: creates a repo from game-template">
+            <button className="btn" onClick={() => setCreatingGame(true)} title="Creates a repo from game-template with its Tasks and Assets boards">
               New game
             </button>
             {error ? (
@@ -293,6 +313,7 @@ function Hub({ viewer }: { viewer: Viewer }) {
         </main>
       </div>
 
+      {newGameDialog}
       {toast ? <div className={"toast" + (toast.err ? " err" : "")}>{toast.text}</div> : null}
     </div>
   );
