@@ -19,12 +19,17 @@ A game is any repo in `PGP-studio` with the topic `game` and a `hub.config.json`
 
 - `src/github.ts`: every GitHub GraphQL read and write.
 - `src/App.tsx`: game picker, tabs, polling (every 10 s while the tab is visible), header milestone.
-- `src/components/Board.tsx`: Tasks board and task dialog (create, edit, claim, move, close).
-- `src/components/Assets.tsx`: filters, search, inline edit, add.
+- `src/components/Board.tsx`: Tasks board and task dialog (create, edit, claim, move, close, delete), workflow filter, "Start with Claude" (copies `/task N`).
+- `src/components/Workflows.tsx`: workflows = issues labelled `workflow`; their tasks are sub-issues. Owner = the workflow's Worker field. Add one task, or one per area from a title template.
+- `src/components/Assets.tsx`: filters, search, inline edit, add, delete.
 - `src/components/Areas.tsx`: progress per area from the config's `structure`; click for detail.
 - `src/components/SidePanel.tsx`: In-progress tasks across all games, grouped by person.
 - `src/team.ts`: the team list (names, GitHub logins, colours).
 - `src/styles.css`: colours and layout, matching `design/hub-prototype.html`.
+
+## Claude Code
+
+The game repos have `/task <n>`, `/next-task` and `/plan-workflow` commands plus `tools/hub.py`. A web page can't open Claude Code, so the hub's "Start with Claude" buttons copy the command to paste.
 
 ## Not done yet
 
