@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Run } from "../App";
-import { createAsset, renameItem, setField, type Game, type Item, type Project } from "../github";
+import { createAsset, deleteItem, renameItem, setField, type Game, type Item, type Project } from "../github";
 import { pill, plural, replaceItem } from "../lib";
 
 type Props = { game: Game; project: Project; run: Run; patch: (fn: (p: Project) => Project) => void };
@@ -42,6 +42,12 @@ export default function Assets({ game, project, run, patch }: Props) {
       replaceItem(p, a.id, (i) => (field === "Title" ? { ...i, title: value } : { ...i, values: { ...i.values, [field]: value } })),
     );
     run(`Saved ${field.toLowerCase()} of ${a.title}`, () => (field === "Title" ? renameItem(a, value) : setField(project, a.id, field, value)));
+  };
+
+  const remove = (a: Item) => {
+    if (!confirm(`Delete the asset "${a.title}"?\n\nThis can't be undone (you can add it again).`)) return;
+    patch((p) => ({ ...p, items: p.items.filter((i) => i.id !== a.id) }));
+    run(`Deleted ${a.title}`, () => deleteItem(project, a));
   };
 
   const counts = (t: string) => project.items.filter((a) => a.values[typeField] === t).length;
@@ -87,6 +93,7 @@ export default function Assets({ game, project, run, patch }: Props) {
               <th>Made by</th>
               <th>Roblox ID</th>
               <th>Prompt</th>
+              <th />
             </tr>
           </thead>
           <tbody>
@@ -112,6 +119,11 @@ export default function Assets({ game, project, run, patch }: Props) {
                 </td>
                 <td style={{ minWidth: 180 }}>
                   <TextCell value={a.values["Prompt"] ?? ""} placeholder="—" onSave={(x) => edit(a, "Prompt", x)} />
+                </td>
+                <td style={{ minWidth: 0, width: 1 }}>
+                  <button className="row-del" title={`Delete ${a.title}`} aria-label={`Delete ${a.title}`} onClick={() => remove(a)}>
+                    Delete
+                  </button>
                 </td>
               </tr>
             ))}
