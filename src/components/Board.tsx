@@ -4,6 +4,7 @@ import { setFields, setIssueClosed, type Game, type Item, type Project } from ".
 import { copyCommandFor, overlaps, replaceItem, status, STATUSES } from "../lib";
 import TaskDialog from "./TaskDialog";
 import { promptOf } from "./PromptEditor";
+import { isSoundTask } from "../sounds";
 
 type Props = {
   game: Game;
@@ -14,9 +15,10 @@ type Props = {
   patch: (fn: (p: Project) => Project) => void;
   workflowFilter: string; // "" = all, "none" = tasks without a workflow, else workflow issue number
   setWorkflowFilter: (v: string) => void;
+  openSounds: () => void;
 };
 
-export default function Board({ game, project, me, run, notify, patch, workflowFilter, setWorkflowFilter }: Props) {
+export default function Board({ game, project, me, run, notify, patch, workflowFilter, setWorkflowFilter, openSounds }: Props) {
   const [editing, setEditing] = useState<Item | "new" | null>(null);
   const workflows = project.items.filter((i) => i.isWorkflow);
   const wfTitle = (n?: number) => workflows.find((w) => w.number === n)?.title;
@@ -41,6 +43,7 @@ export default function Board({ game, project, me, run, notify, patch, workflowF
     switch (status(t)) {
       case "Ready":
         if (!t.number) return null;
+        if (isSoundTask(t)) return ["Open in Sounds", openSounds]; // generated in the hub, not by Claude
         // No prompt yet: write one first, so Claude doesn't have to guess.
         return promptOf(t.body) ? ["Start with Claude", () => copyCommand(`/task ${t.number}`)] : ["Write prompt", () => setEditing(t)];
       case "In progress":

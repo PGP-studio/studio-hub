@@ -21,6 +21,7 @@ A game is any repo in `PGP-studio` with the topic `game` and a `hub.config.json`
 - `src/App.tsx`: game picker, tabs, polling (every 10 s while the tab is visible), header milestone.
 - `src/components/Board.tsx`: Tasks board and task dialog (create, edit, claim, move, close, delete), workflow filter, "Start with Claude" (copies `/task N`).
 - `src/components/Workflows.tsx`: workflows = issues labelled `workflow`; their tasks are sub-issues. Owner = the workflow's Worker field. Add one task, or one per area from a title template.
+- `src/components/Sounds.tsx` + `src/sounds.ts`: sound tasks (label `sound`). Approve → N ElevenLabs variations saved to branch `sound/<n>` → pick one → PR adding it to `assets/audio/`, an Assets item, candidates deleted. `api/sound.ts` calls ElevenLabs (key in Vercel, org members only); locally, `vite.config.ts` stands in and fakes beeps without a key.
 - `src/components/Assets.tsx`: filters, search, inline edit, add, delete.
 - `src/components/Areas.tsx`: progress per area from the config's `structure`; click for detail.
 - `src/components/SidePanel.tsx`: In-progress tasks across all games, grouped by person.

@@ -11,11 +11,12 @@ import SidePanel from "./components/SidePanel";
 import Workflows from "./components/Workflows";
 import NewGameDialog from "./components/NewGameDialog";
 import Overview from "./components/Overview";
+import Sounds from "./components/Sounds";
 
 const POLL_MS = 10_000;
 const ASSETS_POLL_MS = 30_000;
 const LAST_GAME = "hub.lastGame";
-type Tab = "overview" | "board" | "workflows" | "assets" | "areas";
+type Tab = "overview" | "board" | "workflows" | "sounds" | "assets" | "areas";
 
 export type Run = (label: string, fn: () => Promise<void>) => Promise<boolean>;
 
@@ -210,6 +211,7 @@ function Hub({ viewer }: { viewer: Viewer }) {
     ["overview", "Overview"],
     ["board", "Tasks board"],
     ["workflows", "Workflows"],
+    ["sounds", "Sounds"],
     ["assets", "Assets"],
     ["areas", `${unitLabel} 1 to ${units}`],
   ];
@@ -295,7 +297,18 @@ function Hub({ viewer }: { viewer: Viewer }) {
               notify={(text) => setToast({ text })}
               workflowFilter={workflowFilter}
               setWorkflowFilter={setWorkflowFilter}
+              openSounds={() => setTab("sounds")}
               patch={(fn) => tasks.patch((all) => ({ ...all, [game.repo]: fn(all[game.repo]) }))} />
+          ) : tab === "sounds" ? (
+            <Sounds
+              game={game}
+              tasks={tasksProject}
+              assets={assets.data}
+              me={me}
+              run={run}
+              notify={(text) => setToast({ text })}
+              patch={(fn) => tasks.patch((all) => ({ ...all, [game.repo]: fn(all[game.repo]) }))}
+            />
           ) : tab === "workflows" ? (
             <Workflows
               game={game}

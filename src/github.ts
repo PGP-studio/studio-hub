@@ -31,6 +31,27 @@ export async function gql<T>(query: string, variables: Record<string, unknown> =
   return json.data as T;
 }
 
+/** GitHub REST call (same sign-in / dev-proxy rules as gql). Returns the raw Response. */
+export async function rest(path: string, init: RequestInit = {}): Promise<Response> {
+  const token = sessionToken();
+  const url = token ? `https://api.github.com${path}` : `/gh${path}`;
+  return fetch(url, {
+    ...init,
+    headers: {
+      Accept: "application/vnd.github+json",
+      ...(init.body ? { "Content-Type": "application/json" } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(init.headers ?? {}),
+    },
+  });
+}
+
+export async function restJson<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const res = await rest(path, init);
+  if (!res.ok) throw new Error(`GitHub ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  return (res.status === 204 ? null : await res.json()) as T;
+}
+
 // ---------- Types ----------
 
 export type HubConfig = {
@@ -302,10 +323,12 @@ export type NewTask = {
   values: Record<string, string>; // project fields
   workflow?: Item | null; // parent workflow; the new issue becomes its sub-issue
   asWorkflow?: boolean; // create a workflow (issue labelled `workflow`) instead of a task
+  labels?: string[]; // extra labels, e.g. "sound"
 };
 
 export async function createTask(game: Game, project: Project, t: NewTask): Promise<void> {
-  const labelIds = t.asWorkflow ? [await workflowLabelId(game)] : null;
+  const names = [...(t.asWorkflow ? [WORKFLOW_LABEL] : []), ...(t.labels ?? [])];
+  const labelIds = names.length ? await Promise.all(names.map((n) => labelId(game, n))) : null;
   const d = await gql<{ createIssue: { issue: { id: string } } }>(
     `mutation($r:ID!,$t:String!,$b:String,$m:ID,$l:[ID!]){ createIssue(input:{repositoryId:$r, title:$t, body:$b, milestoneId:$m, labelIds:$l}){ issue{ id } } }`,
     { r: game.repoId, t: t.title, b: t.body || "Created from the hub.", m: t.milestoneId || null, l: labelIds },
@@ -339,15 +362,21 @@ export async function setWorkflow(task: Item, from: Item | null, to: Item | null
   }
 }
 
-/** The repo's `workflow` label, created on first use. */
-async function workflowLabelId(game: Game): Promise<string> {
+const LABELS: Record<string, { color: string; description: string }> = {
+  [WORKFLOW_LABEL]: { color: "5B3FB0", description: "A list of tasks (sub-issues)" },
+  sound: { color: "C26A1A", description: "A sound effect or music track generated in the hub's Sounds tab" },
+};
+
+/** A repo label's ID, created on first use. */
+export async function labelId(game: Game, name: string): Promise<string> {
   type L = { repository: { label: { id: string } | null } };
   const q = `query($o:String!,$n:String!,$l:String!){ repository(owner:$o, name:$n){ label(name:$l){ id } } }`;
-  const found = await gql<L>(q, { o: ORG, n: game.repo, l: WORKFLOW_LABEL });
+  const found = await gql<L>(q, { o: ORG, n: game.repo, l: name });
   if (found.repository.label) return found.repository.label.id;
+  const meta = LABELS[name] ?? { color: "CFCBC2", description: "" };
   const made = await gql<{ createLabel: { label: { id: string } } }>(
-    `mutation($r:ID!,$n:String!){ createLabel(input:{repositoryId:$r, name:$n, color:"5B3FB0", description:"A list of tasks (sub-issues)"}){ label{ id } } }`,
-    { r: game.repoId, n: WORKFLOW_LABEL },
+    `mutation($r:ID!,$n:String!,$c:String!,$d:String){ createLabel(input:{repositoryId:$r, name:$n, color:$c, description:$d}){ label{ id } } }`,
+    { r: game.repoId, n: name, c: meta.color, d: meta.description },
   );
   return made.createLabel.label.id;
 }
