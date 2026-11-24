@@ -1,6 +1,7 @@
 // Everything the hub knows lives in GitHub. This file is the only place that talks to it.
 
 export const ORG = "PGP-studio";
+export const WORKFLOW_LABEL = "workflow";
 
 const TOKEN_KEY = "gh_token";
 
@@ -67,6 +68,9 @@ export type Item = {
   title: string;
   body: string;
   values: Record<string, string>; // field name -> text or option name
+  labels: string[];
+  parent?: number; // workflow (parent issue) number
+  isWorkflow: boolean; // issue labelled `workflow`; its tasks are sub-issues
 };
 
 export type Project = { id: string; number: number; fields: Record<string, Field>; items: Item[] };
@@ -129,7 +133,7 @@ const PROJECT_QUERY = `query($org:String!, $num:Int!, $after:String){ organizati
       id isArchived
       content{
         __typename
-        ... on Issue{ id number title url closed body }
+        ... on Issue{ id number title url closed body labels(first:10){ nodes{ name } } parent{ number } }
         ... on DraftIssue{ id title body }
       }
       fieldValues(first:20){ nodes{
@@ -146,7 +150,17 @@ type RawValue = { text?: string; name?: string; milestone?: { title: string }; f
 type RawItem = {
   id: string;
   isArchived: boolean;
-  content: { __typename: string; id: string; number?: number; title: string; url?: string; closed?: boolean; body: string } | null;
+  content: {
+    __typename: string;
+    id: string;
+    number?: number;
+    title: string;
+    url?: string;
+    closed?: boolean;
+    body: string;
+    labels?: { nodes: { name: string }[] };
+    parent?: { number: number } | null;
+  } | null;
   fieldValues: { nodes: RawValue[] };
 };
 
@@ -189,6 +203,9 @@ export async function fetchProject(number: number): Promise<Project> {
         title: c.title,
         body: c.body ?? "",
         values,
+        labels: c.labels?.nodes.map((l) => l.name) ?? [],
+        parent: c.parent?.number,
+        isWorkflow: !!c.labels?.nodes.some((l) => l.name === WORKFLOW_LABEL),
       });
     }
     after = p.items.pageInfo.hasNextPage ? p.items.pageInfo.endCursor : null;
@@ -262,23 +279,61 @@ export async function setIssueClosed(item: Item, closed: boolean): Promise<void>
 }
 
 /** New task = new issue in the game repo, added to its Tasks project, then fields set. */
-export async function createTask(
-  game: Game,
-  project: Project,
-  title: string,
-  body: string,
-  milestoneId: string | null,
-  values: Record<string, string>,
-): Promise<void> {
+export type NewTask = {
+  title: string;
+  body?: string;
+  milestoneId?: string | null;
+  values: Record<string, string>; // project fields
+  workflow?: Item | null; // parent workflow; the new issue becomes its sub-issue
+  asWorkflow?: boolean; // create a workflow (issue labelled `workflow`) instead of a task
+};
+
+export async function createTask(game: Game, project: Project, t: NewTask): Promise<void> {
+  const labelIds = t.asWorkflow ? [await workflowLabelId(game)] : null;
   const d = await gql<{ createIssue: { issue: { id: string } } }>(
-    `mutation($r:ID!,$t:String!,$b:String,$m:ID){ createIssue(input:{repositoryId:$r, title:$t, body:$b, milestoneId:$m}){ issue{ id } } }`,
-    { r: game.repoId, t: title, b: body, m: milestoneId },
+    `mutation($r:ID!,$t:String!,$b:String,$m:ID,$l:[ID!]){ createIssue(input:{repositoryId:$r, title:$t, body:$b, milestoneId:$m, labelIds:$l}){ issue{ id } } }`,
+    { r: game.repoId, t: t.title, b: t.body || "Created from the hub.", m: t.milestoneId || null, l: labelIds },
   );
+  const issueId = d.createIssue.issue.id;
   const a = await gql<{ addProjectV2ItemById: { item: { id: string } } }>(
     `mutation($p:ID!,$c:ID!){ addProjectV2ItemById(input:{projectId:$p, contentId:$c}){ item{ id } } }`,
-    { p: project.id, c: d.createIssue.issue.id },
+    { p: project.id, c: issueId },
   );
-  await setFields(project, a.addProjectV2ItemById.item.id, values);
+  await setFields(project, a.addProjectV2ItemById.item.id, t.values);
+  if (t.workflow) await addSubIssue(t.workflow.contentId, issueId);
+}
+
+async function addSubIssue(parentIssueId: string, childIssueId: string): Promise<void> {
+  await gql(`mutation($p:ID!,$c:ID!){ addSubIssue(input:{issueId:$p, subIssueId:$c, replaceParent:true}){ clientMutationId } }`, {
+    p: parentIssueId,
+    c: childIssueId,
+  });
+}
+
+/** Move a task into another workflow, or out of its workflow (to = null). */
+export async function setWorkflow(task: Item, from: Item | null, to: Item | null): Promise<void> {
+  if (task.kind !== "issue") return;
+  if (to) {
+    await addSubIssue(to.contentId, task.contentId);
+  } else if (from) {
+    await gql(`mutation($p:ID!,$c:ID!){ removeSubIssue(input:{issueId:$p, subIssueId:$c}){ clientMutationId } }`, {
+      p: from.contentId,
+      c: task.contentId,
+    });
+  }
+}
+
+/** The repo's `workflow` label, created on first use. */
+async function workflowLabelId(game: Game): Promise<string> {
+  type L = { repository: { label: { id: string } | null } };
+  const q = `query($o:String!,$n:String!,$l:String!){ repository(owner:$o, name:$n){ label(name:$l){ id } } }`;
+  const found = await gql<L>(q, { o: ORG, n: game.repo, l: WORKFLOW_LABEL });
+  if (found.repository.label) return found.repository.label.id;
+  const made = await gql<{ createLabel: { label: { id: string } } }>(
+    `mutation($r:ID!,$n:String!){ createLabel(input:{repositoryId:$r, name:$n, color:"5B3FB0", description:"A list of tasks (sub-issues)"}){ label{ id } } }`,
+    { r: game.repoId, n: WORKFLOW_LABEL },
+  );
+  return made.createLabel.label.id;
 }
 
 export async function createAsset(project: Project, title: string, values: Record<string, string>): Promise<void> {

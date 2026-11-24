@@ -7,7 +7,7 @@ type Busy = { task: Item; game: Game };
 /** Who's working now: every In-progress task across all games, grouped by person. */
 export default function SidePanel({ games, tasks }: { games: Game[]; tasks: Record<string, Project> | null }) {
   const busy: Busy[] = [];
-  for (const g of games) for (const t of tasks?.[g.repo]?.items ?? []) if (status(t) === "In progress") busy.push({ task: t, game: g });
+  for (const g of games) for (const t of tasks?.[g.repo]?.items ?? []) if (status(t) === "In progress" && !t.isWorkflow) busy.push({ task: t, game: g });
 
   const byMember = new Map<Member, Busy[]>(TEAM.map((m) => [m, []]));
   const others = new Map<string, Busy[]>();

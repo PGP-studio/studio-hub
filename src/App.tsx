@@ -7,11 +7,12 @@ import Board from "./components/Board";
 import Assets from "./components/Assets";
 import Areas from "./components/Areas";
 import SidePanel from "./components/SidePanel";
+import Workflows from "./components/Workflows";
 
 const POLL_MS = 10_000;
 const ASSETS_POLL_MS = 30_000;
 const LAST_GAME = "hub.lastGame";
-type Tab = "board" | "assets" | "areas";
+type Tab = "board" | "workflows" | "assets" | "areas";
 
 export type Run = (label: string, fn: () => Promise<void>) => Promise<boolean>;
 
@@ -53,11 +54,13 @@ function Hub({ viewer }: { viewer: Viewer }) {
     }
   });
   const [tab, setTab] = useState<Tab>("board");
+  const [workflowFilter, setWorkflowFilter] = useState("");
   const [toast, setToast] = useState<{ text: string; err?: boolean } | null>(null);
 
   const game: Game | undefined = games.data?.find((g) => g.repo === repo) ?? games.data?.[0];
   const pick = (r: string) => {
     setRepo(r);
+    setWorkflowFilter("");
     try {
       localStorage.setItem(LAST_GAME, r);
     } catch {
@@ -86,7 +89,7 @@ function Hub({ viewer }: { viewer: Viewer }) {
   // Your own edits still show at once.
   const assetsNum = game?.config.assetsProject;
   const loadAssets = useMemo(() => (assetsNum ? () => fetchProject(assetsNum) : null), [assetsNum]);
-  const assetsVisible = tab !== "board";
+  const assetsVisible = tab === "assets" || tab === "areas";
   const assets = usePoll(loadAssets, assetsVisible ? ASSETS_POLL_MS : 300_000, `${game?.repo}:${assetsNum}:${assetsVisible}`);
 
   useEffect(() => {
@@ -119,7 +122,7 @@ function Hub({ viewer }: { viewer: Viewer }) {
 
   // Header progress: the game's first open milestone.
   const milestone = game?.milestones[0];
-  const msItems = tasksProject?.items.filter((t) => milestone && t.values["Milestone"] === milestone.title) ?? [];
+  const msItems = tasksProject?.items.filter((t) => !t.isWorkflow && milestone && t.values["Milestone"] === milestone.title) ?? [];
   const msDone = msItems.filter((t) => status(t) === "Done").length;
 
   const error = games.error || tasks.error || assets.error;
@@ -137,6 +140,7 @@ function Hub({ viewer }: { viewer: Viewer }) {
   const units = game?.config.structure.units.length ?? 0;
   const tabs: [Tab, string][] = [
     ["board", "Tasks board"],
+    ["workflows", "Workflows"],
     ["assets", "Assets"],
     ["areas", `${unitLabel} 1 to ${units}`],
   ];
@@ -206,7 +210,26 @@ function Hub({ viewer }: { viewer: Viewer }) {
           {!game || !tasksProject ? (
             <p className="empty">Loading tasks…</p>
           ) : tab === "board" ? (
-            <Board game={game} project={tasksProject} me={me} run={run} notify={(text) => setToast({ text })} patch={(fn) => tasks.patch((all) => ({ ...all, [game.repo]: fn(all[game.repo]) }))} />
+            <Board
+              game={game}
+              project={tasksProject}
+              me={me}
+              run={run}
+              notify={(text) => setToast({ text })}
+              workflowFilter={workflowFilter}
+              setWorkflowFilter={setWorkflowFilter}
+              patch={(fn) => tasks.patch((all) => ({ ...all, [game.repo]: fn(all[game.repo]) }))} />
+          ) : tab === "workflows" ? (
+            <Workflows
+              game={game}
+              project={tasksProject}
+              run={run}
+              notify={(text) => setToast({ text })}
+              showOnBoard={(n) => {
+                setWorkflowFilter(String(n));
+                setTab("board");
+              }}
+            />
           ) : !assets.data ? (
             <p className="empty">Loading assets…</p>
           ) : tab === "assets" ? (

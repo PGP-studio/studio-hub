@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Run } from "../App";
-import { createTask, removeTask, renameItem, setFields, setIssueClosed, type Game, type Item, type Project } from "../github";
+import { createTask, removeTask, renameItem, setFields, setIssueClosed, setWorkflow, type Game, type Item, type Project } from "../github";
 import { overlaps, replaceItem, status, STATUSES } from "../lib";
 
 type Props = {
@@ -10,11 +10,18 @@ type Props = {
   run: Run;
   notify: (text: string) => void;
   patch: (fn: (p: Project) => Project) => void;
+  workflowFilter: string; // "" = all, "none" = tasks without a workflow, else workflow issue number
+  setWorkflowFilter: (v: string) => void;
 };
 
-export default function Board({ game, project, me, run, notify, patch }: Props) {
+export default function Board({ game, project, me, run, notify, patch, workflowFilter, setWorkflowFilter }: Props) {
   const [editing, setEditing] = useState<Item | "new" | null>(null);
-  const tasks = project.items;
+  const workflows = project.items.filter((i) => i.isWorkflow);
+  const wfTitle = (n?: number) => workflows.find((w) => w.number === n)?.title;
+  const tasks = project.items.filter((i) => !i.isWorkflow); // workflows have their own tab
+  const shown = tasks.filter((t) =>
+    !workflowFilter ? true : workflowFilter === "none" ? !t.parent : String(t.parent) === workflowFilter,
+  );
   const myWorker = `${me}'s Claude`;
 
   // Change fields locally first so the card moves at once, then write to GitHub.
@@ -53,10 +60,21 @@ export default function Board({ game, project, me, run, notify, patch }: Props) 
   return (
     <>
       <div className="toolbar" style={{ justifyContent: "space-between" }}>
-        <span className="small">
-          {tasks.length} tasks in {game.config.name} · Tasks. Click a title to edit.
-        </span>
-        <div style={{ display: "flex", gap: 6 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <select className="input" aria-label="Filter by workflow" value={workflowFilter} onChange={(e) => setWorkflowFilter(e.target.value)}>
+            <option value="">All workflows</option>
+            {workflows.map((w) => (
+              <option key={w.id} value={String(w.number)}>
+                {w.title}
+              </option>
+            ))}
+            <option value="none">No workflow</option>
+          </select>
+          <span className="small">
+            {shown.length} of {tasks.length} tasks
+          </span>
+        </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           <button className="btn" title="Claude picks the next Ready task from your workflow and starts it" onClick={() => copyCommand("/next-task")}>
             Next task with Claude
           </button>
@@ -67,7 +85,7 @@ export default function Board({ game, project, me, run, notify, patch }: Props) 
       </div>
       <div className="columns">
         {STATUSES.map((col) => {
-          const cards = tasks.filter((t) => status(t) === col);
+          const cards = shown.filter((t) => status(t) === col);
           return (
             <section key={col} className="column">
               <div className="column-head">
@@ -87,6 +105,7 @@ export default function Board({ game, project, me, run, notify, patch }: Props) 
                     <div className="tags">
                       {t.values["System"] ? <span className="tag sys">{t.values["System"]}</span> : null}
                       <span className="tag area">{t.values["Area"] || "whole game"}</span>
+                      {t.parent && wfTitle(t.parent) ? <span className="tag wf">{wfTitle(t.parent)}</span> : null}
                       {t.values["Milestone"] ? <span className="tag ms">{t.values["Milestone"]}</span> : null}
                     </div>
                     <div className="small" style={{ fontSize: 13 }}>
@@ -126,6 +145,8 @@ export default function Board({ game, project, me, run, notify, patch }: Props) 
           game={game}
           project={project}
           task={editing === "new" ? null : editing}
+          workflows={workflows}
+          defaultWorkflow={workflowFilter && workflowFilter !== "none" ? Number(workflowFilter) : undefined}
           me={myWorker}
           run={run}
           hide={(id) => patch((p) => ({ ...p, items: p.items.filter((i) => i.id !== id) }))}
@@ -140,6 +161,8 @@ function TaskDialog({
   game,
   project,
   task,
+  workflows,
+  defaultWorkflow,
   me,
   run,
   hide,
@@ -148,6 +171,8 @@ function TaskDialog({
   game: Game;
   project: Project;
   task: Item | null;
+  workflows: Item[];
+  defaultWorkflow?: number;
   me: string;
   run: Run;
   hide: (itemId: string) => void;
@@ -163,6 +188,7 @@ function TaskDialog({
     Worker: v["Worker"] || "",
     Files: v["Files"] || "",
   });
+  const [wf, setWf] = useState<string>(String(task ? (task.parent ?? "") : (defaultWorkflow ?? "")));
   const [milestoneId, setMilestoneId] = useState(game.milestones[0]?.id ?? "");
   const [busy, setBusy] = useState(false);
   const set = (k: string, val: string) => setForm((f) => ({ ...f, [k]: val }));
@@ -176,7 +202,8 @@ function TaskDialog({
     let ok: boolean;
     if (!task) {
       const values = Object.fromEntries(Object.entries(form).filter(([, x]) => x));
-      ok = await run("Task created", () => createTask(game, project, title.trim(), body, milestoneId || null, values));
+      const workflow = workflows.find((w) => String(w.number) === wf) ?? null;
+      ok = await run("Task created", () => createTask(game, project, { title: title.trim(), body, milestoneId, values, workflow }));
     } else {
       const changed = Object.fromEntries(Object.entries(form).filter(([k, x]) => x !== (v[k] || "")));
       ok = await run("Task saved", async () => {
@@ -184,6 +211,11 @@ function TaskDialog({
         await setFields(project, task.id, changed);
         const shouldClose = form.Status === "Done";
         if (task.kind === "issue" && shouldClose !== !!task.closed && "Status" in changed) await setIssueClosed(task, shouldClose);
+        if (wf !== String(task.parent ?? "")) {
+          const from = workflows.find((w) => w.number === task.parent) ?? null;
+          const to = workflows.find((w) => String(w.number) === wf) ?? null;
+          await setWorkflow(task, from, to);
+        }
       });
     }
     setBusy(false);
@@ -272,6 +304,17 @@ function TaskDialog({
             </label>
           )}
         </div>
+        <label className="form-row">
+          <span>Workflow</span>
+          <select className="input" value={wf} onChange={(e) => setWf(e.target.value)}>
+            <option value="">No workflow</option>
+            {workflows.map((w) => (
+              <option key={w.id} value={String(w.number)}>
+                {w.title}
+              </option>
+            ))}
+          </select>
+        </label>
         <label className="form-row">
           <span>Worker</span>
           <div style={{ display: "flex", gap: 6 }}>
