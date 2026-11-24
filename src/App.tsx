@@ -98,6 +98,8 @@ function Hub({ viewer }: { viewer: Viewer }) {
         setToast({ text: label });
         return true;
       } catch (e) {
+        tasks.dropPatches();
+        assets.dropPatches();
         setToast({ text: `${label} failed: ${e instanceof Error ? e.message : e}`, err: true });
         return false;
       } finally {

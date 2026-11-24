@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+const HOLD_MS = 20_000;
+
 /**
  * Run `load` now, then every `ms` while the tab is visible (and again when it becomes visible).
  * `refresh()` reloads immediately, e.g. right after your own edit.
@@ -12,6 +14,15 @@ export function usePoll<T>(load: (() => Promise<T>) | null, ms: number, key: str
   const loadRef = useRef(load);
   loadRef.current = load;
   const run = useRef(0);
+  // GitHub Projects reads can lag a few seconds behind writes, so a poll right after an
+  // edit may still return the old value. Local patches are re-applied on top of loads
+  // for HOLD_MS so your own edits don't flicker back.
+  const held = useRef<{ fn: (d: T) => T; until: number }[]>([]);
+  const withHeld = (d: T) => {
+    const now = Date.now();
+    held.current = held.current.filter((p) => p.until > now);
+    return held.current.reduce((acc, p) => p.fn(acc), d);
+  };
 
   const refresh = useCallback(async () => {
     const fn = loadRef.current;
@@ -20,7 +31,7 @@ export function usePoll<T>(load: (() => Promise<T>) | null, ms: number, key: str
     try {
       const d = await fn();
       if (mine !== run.current) return; // a newer load started; drop this one
-      setData(d);
+      setData(withHeld(d));
       setError(null);
       setLoadedAt(new Date());
     } catch (e) {
@@ -30,6 +41,7 @@ export function usePoll<T>(load: (() => Promise<T>) | null, ms: number, key: str
 
   useEffect(() => {
     setData(null);
+    held.current = [];
     if (!loadRef.current) return;
     refresh();
     const timer = setInterval(() => {
@@ -43,6 +55,13 @@ export function usePoll<T>(load: (() => Promise<T>) | null, ms: number, key: str
     };
   }, [key, ms, refresh]);
 
-  const patch = useCallback((fn: (d: T) => T) => setData((d) => (d == null ? d : fn(d))), []);
-  return { data, error, loadedAt, refresh, patch };
+  const patch = useCallback((fn: (d: T) => T) => {
+    held.current.push({ fn, until: Date.now() + HOLD_MS });
+    setData((d) => (d == null ? d : fn(d)));
+  }, []);
+  /** Forget local patches (e.g. after a failed write) so the next load shows GitHub's truth. */
+  const dropPatches = useCallback(() => {
+    held.current = [];
+  }, []);
+  return { data, error, loadedAt, refresh, patch, dropPatches };
 }
