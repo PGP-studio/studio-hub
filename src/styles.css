@@ -189,3 +189,16 @@ select.cell { appearance: auto; }
 .candidate audio { height: 32px; flex: 1 1 180px; min-width: 0; }
 .act.pick { border-color: var(--green); color: #1e6b49; }
 .act.pick:hover { background: #e3f3ea; }
+
+/* Models */
+.concepts { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.concept { margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.concept img, .concept-loading { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); }
+.concept-loading { display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 12px; }
+.concept figcaption { display: flex; justify-content: space-between; align-items: center; gap: 6px; flex-wrap: wrap; }
+.small-concept { max-width: 120px; }
+.sound-card > .concept { max-width: 240px; }
+.model-review { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; }
+.glb-view { flex: 1 1 220px; min-width: 0; height: 260px; border-radius: 8px; border: 1px solid var(--line); background: linear-gradient(#fbfbf9, #ecebe5); }
+.prompt-details summary { cursor: pointer; }
+.prompt-details[open] summary { margin-bottom: 6px; }

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Run } from "../App";
-import { createAsset, deleteItem, renameItem, setField, type Game, type Item, type Project } from "../github";
+import { createAsset, deleteItem, renameItem, setDraftBody, setField, type Game, type Item, type Project } from "../github";
+import Markdown from "./Markdown";
 import { pill, plural, replaceItem } from "../lib";
 
 type Props = { game: Game; project: Project; run: Run; patch: (fn: (p: Project) => Project) => void };
@@ -15,6 +16,7 @@ export default function Assets({ game, project, run, patch }: Props) {
   const [q, setQ] = useState("");
   const [limit, setLimit] = useState(PAGE);
   const [adding, setAdding] = useState(false);
+  const [about, setAbout] = useState<Item | null>(null);
   useEffect(() => setLimit(PAGE), [type, area, st, q]);
 
   const opts = (f: string, fallback: string[]) => project.fields[f]?.options?.map((o) => o.name) ?? fallback;
@@ -93,6 +95,7 @@ export default function Assets({ game, project, run, patch }: Props) {
               <th>Made by</th>
               <th>Roblox ID</th>
               <th>Prompt</th>
+              <th>About</th>
               <th />
             </tr>
           </thead>
@@ -121,6 +124,11 @@ export default function Assets({ game, project, run, patch }: Props) {
                   <TextCell value={a.values["Prompt"] ?? ""} placeholder="—" onSave={(x) => edit(a, "Prompt", x)} />
                 </td>
                 <td style={{ minWidth: 0, width: 1 }}>
+                  <button className="row-del" title="Description" onClick={() => setAbout(a)}>
+                    {/^## Description/m.test(a.body) ? "About" : "Add"}
+                  </button>
+                </td>
+                <td style={{ minWidth: 0, width: 1 }}>
                   <button className="row-del" title={`Delete ${a.title}`} aria-label={`Delete ${a.title}`} onClick={() => remove(a)}>
                     Delete
                   </button>
@@ -140,7 +148,57 @@ export default function Assets({ game, project, run, patch }: Props) {
           </button>
         ) : null}
       </div>
+      {about ? (
+        <AboutDialog
+          asset={about}
+          onClose={() => setAbout(null)}
+          onSave={async (body) => {
+            const a = about;
+            patch((p) => replaceItem(p, a.id, (i) => ({ ...i, body })));
+            const ok = await run(`Saved the description of ${a.title}`, () => setDraftBody(a, body));
+            if (ok) setAbout(null);
+          }}
+        />
+      ) : null}
     </>
+  );
+}
+
+/** An asset's description (its draft item body): what Claude reads when building it. */
+function AboutDialog({ asset, onClose, onSave }: { asset: Item; onClose: () => void; onSave: (body: string) => void }) {
+  const [text, setText] = useState(asset.body);
+  const [edit, setEdit] = useState(!/^## Description/m.test(asset.body));
+  return (
+    <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="dialog wide" role="dialog" aria-label={`About ${asset.title}`}>
+        <h2>{asset.title}</h2>
+        <span className="small">Claude reads this when building the asset. Keep the first line (its place in the game). Shared style is in design/style/ in the game repo.</span>
+        {edit ? (
+          <textarea className="input prompt-text" rows={16} value={text} onChange={(e) => setText(e.target.value)} />
+        ) : (
+          <div className="prompt-preview">
+            <Markdown text={asset.body} />
+          </div>
+        )}
+        <div className="dialog-actions">
+          <span />
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="btn" onClick={onClose}>
+              Close
+            </button>
+            {edit ? (
+              <button className="btn-primary" disabled={text === asset.body} onClick={() => onSave(text)}>
+                Save
+              </button>
+            ) : (
+              <button className="btn" onClick={() => setEdit(true)}>
+                Edit
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 

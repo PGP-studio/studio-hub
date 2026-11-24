@@ -4,6 +4,7 @@
 // the Assets board, and deletes the candidates branch.
 
 import { gql, ORG, rest, restJson, sessionToken, setFields, type Game, type Item, type Project } from "./github";
+import { base64, commitFiles, defaultHead, ensureBranch } from "./branchFiles";
 
 export const SOUND_LABEL = "sound";
 export const AUDIO_DIR = "assets/audio";
@@ -115,75 +116,6 @@ async function generateOne(spec: SoundSpec, seed: number): Promise<{ bytes: Uint
   }
   const type = res.headers.get("content-type") ?? "audio/mpeg";
   return { bytes: new Uint8Array(await res.arrayBuffer()), ext: type.includes("wav") ? "wav" : "mp3" };
-}
-
-function base64(bytes: Uint8Array): string {
-  let bin = "";
-  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return btoa(bin);
-}
-
-async function branchHead(repo: string, branch: string): Promise<string | null> {
-  const res = await rest(`/repos/${ORG}/${repo}/git/ref/heads/${branch}`);
-  if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`GitHub ${res.status} reading ${branch}`);
-  return ((await res.json()) as { object: { sha: string } }).object.sha;
-}
-
-async function defaultHead(repo: string): Promise<{ name: string; sha: string }> {
-  const r = await restJson<{ default_branch: string }>(`/repos/${ORG}/${repo}`);
-  const sha = await branchHead(repo, r.default_branch);
-  if (!sha) throw new Error("No default branch");
-  return { name: r.default_branch, sha };
-}
-
-async function ensureBranch(repo: string, branch: string): Promise<void> {
-  if (await branchHead(repo, branch)) return;
-  const base = await defaultHead(repo);
-  await restJson(`/repos/${ORG}/${repo}/git/refs`, { method: "POST", body: JSON.stringify({ ref: `refs/heads/${branch}`, sha: base.sha }) });
-}
-
-/** The branch's head through GraphQL: the same view createCommitOnBranch checks against (REST can lag). */
-async function graphHead(repo: string, branch: string): Promise<string | null> {
-  const d = await gql<{ repository: { ref: { target: { oid: string } } | null } }>(
-    `query($o:String!,$n:String!,$r:String!){ repository(owner:$o, name:$n){ ref(qualifiedName:$r){ target{ oid } } } }`,
-    { o: ORG, n: repo, r: `refs/heads/${branch}` },
-  );
-  return d.repository.ref?.target.oid ?? null;
-}
-
-// Last commit we made per branch: the next commit builds on it without asking GitHub (which may lag).
-const lastCommit = new Map<string, string>();
-
-async function commitFiles(repo: string, branch: string, headline: string, additions: { path: string; contents: string }[], deletions: string[] = []) {
-  const key = `${repo}:${branch}`;
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const head = (attempt === 0 && lastCommit.get(key)) || (await graphHead(repo, branch));
-    if (!head) {
-      if (attempt === 4) throw new Error(`Branch ${branch} is missing`);
-      await new Promise((r) => setTimeout(r, 800 * (attempt + 1))); // just created: GitHub may not show it yet
-      continue;
-    }
-    try {
-      const d = await gql<{ createCommitOnBranch: { commit: { oid: string } } }>(
-        `mutation($i:CreateCommitOnBranchInput!){ createCommitOnBranch(input:$i){ commit{ oid } } }`,
-        {
-          i: {
-            branch: { repositoryNameWithOwner: `${ORG}/${repo}`, branchName: branch },
-            expectedHeadOid: head,
-            message: { headline },
-            fileChanges: { additions, deletions: deletions.map((path) => ({ path })) },
-          },
-        },
-      );
-      lastCommit.set(key, d.createCommitOnBranch.commit.oid);
-      return;
-    } catch (e) {
-      lastCommit.delete(key);
-      if (attempt === 4 || !/expected|head|oid|stale|update/i.test(String(e))) throw e; // branch moved: retry on its new head
-      await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
-    }
-  }
 }
 
 export type Candidate = { name: string; path: string };

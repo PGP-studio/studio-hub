@@ -12,11 +12,12 @@ import Workflows from "./components/Workflows";
 import NewGameDialog from "./components/NewGameDialog";
 import Overview from "./components/Overview";
 import Sounds from "./components/Sounds";
+import Models from "./components/Models";
 
 const POLL_MS = 10_000;
 const ASSETS_POLL_MS = 30_000;
 const LAST_GAME = "hub.lastGame";
-type Tab = "overview" | "board" | "workflows" | "sounds" | "assets" | "areas";
+type Tab = "overview" | "board" | "workflows" | "sounds" | "models" | "assets" | "areas";
 
 export type Run = (label: string, fn: () => Promise<void>) => Promise<boolean>;
 
@@ -140,7 +141,7 @@ function Hub({ viewer }: { viewer: Viewer }) {
   // Your own edits still show at once.
   const assetsNum = game?.config.assetsProject;
   const loadAssets = useMemo(() => (assetsNum ? () => fetchProject(assetsNum) : null), [assetsNum]);
-  const assetsVisible = tab === "assets" || tab === "areas";
+  const assetsVisible = tab === "assets" || tab === "areas" || tab === "models";
   const assets = usePoll(loadAssets, assetsVisible ? ASSETS_POLL_MS : 300_000, `${game?.repo}:${assetsNum}:${assetsVisible}`);
 
   useEffect(() => {
@@ -212,6 +213,7 @@ function Hub({ viewer }: { viewer: Viewer }) {
     ["board", "Tasks board"],
     ["workflows", "Workflows"],
     ["sounds", "Sounds"],
+    ["models", "Models"],
     ["assets", "Assets"],
     ["areas", `${unitLabel} 1 to ${units}`],
   ];
@@ -298,7 +300,18 @@ function Hub({ viewer }: { viewer: Viewer }) {
               workflowFilter={workflowFilter}
               setWorkflowFilter={setWorkflowFilter}
               openSounds={() => setTab("sounds")}
+              openModels={() => setTab("models")}
               patch={(fn) => tasks.patch((all) => ({ ...all, [game.repo]: fn(all[game.repo]) }))} />
+          ) : tab === "models" ? (
+            <Models
+              game={game}
+              tasks={tasksProject}
+              assets={assets.data}
+              me={me}
+              run={run}
+              notify={(text) => setToast({ text })}
+              patch={(fn) => tasks.patch((all) => ({ ...all, [game.repo]: fn(all[game.repo]) }))}
+            />
           ) : tab === "sounds" ? (
             <Sounds
               game={game}
