@@ -1,0 +1,273 @@
+// Everything the hub knows lives in GitHub. This file is the only place that talks to it.
+
+export const ORG = "PGP-studio";
+
+const TOKEN_KEY = "gh_token";
+
+export function sessionToken(): string | null {
+  try {
+    return sessionStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export async function gql<T>(query: string, variables: Record<string, unknown> = {}): Promise<T> {
+  const token = sessionToken();
+  // With a sign-in token, call GitHub directly. Without one (local dev), the Vite dev
+  // server proxies /gh to GitHub and adds the developer's token.
+  const url = token ? "https://api.github.com/graphql" : "/gh/graphql";
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify({ query, variables }),
+  });
+  if (!res.ok) throw new Error(`GitHub ${res.status}: ${await res.text()}`);
+  const json = await res.json();
+  if (json.errors?.length) throw new Error(json.errors.map((e: { message: string }) => e.message).join("; "));
+  return json.data as T;
+}
+
+// ---------- Types ----------
+
+export type HubConfig = {
+  name: string;
+  tasksProject: number;
+  assetsProject: number;
+  assetTypeField?: string;
+  systems: string[];
+  assetTypes: string[];
+  assetStatuses: string[];
+  structure: {
+    label: string;
+    units: string[];
+    progress: { label: string; assetType: string }[];
+  };
+};
+
+export type Milestone = { id: string; title: string };
+
+export type Game = {
+  repo: string;
+  repoId: string;
+  url: string;
+  config: HubConfig;
+  milestones: Milestone[];
+};
+
+export type Field = { id: string; name: string; dataType: string; options?: { id: string; name: string }[] };
+
+export type Item = {
+  id: string; // project item id
+  contentId: string; // issue or draft issue id
+  kind: "issue" | "draft";
+  number?: number;
+  url?: string;
+  closed?: boolean;
+  title: string;
+  body: string;
+  values: Record<string, string>; // field name -> text or option name
+};
+
+export type Project = { id: string; number: number; fields: Record<string, Field>; items: Item[] };
+
+export type Viewer = { login: string; name: string | null; isMember: boolean };
+
+// ---------- Reads ----------
+
+export async function fetchViewer(): Promise<Viewer> {
+  const d = await gql<{ viewer: { login: string; name: string | null }; organization: { viewerIsAMember: boolean } | null }>(
+    `query($org:String!){ viewer{login name} organization(login:$org){viewerIsAMember} }`,
+    { org: ORG },
+  );
+  return { login: d.viewer.login, name: d.viewer.name, isMember: !!d.organization?.viewerIsAMember };
+}
+
+type RepoNode = {
+  name: string;
+  id: string;
+  url: string;
+  isArchived: boolean;
+  repositoryTopics: { nodes: { topic: { name: string } }[] };
+  object: { text: string } | null;
+  milestones: { nodes: Milestone[] };
+};
+
+/** Games = repos in the org with the topic `game` and a hub.config.json. */
+export async function fetchGames(): Promise<Game[]> {
+  // Read hub.config.json from the default branch. VITE_HUB_CONFIG_REF (in .env.local) lets you
+  // try a config that's still on a branch, e.g. VITE_HUB_CONFIG_REF=my-branch.
+  const expr = `${import.meta.env.VITE_HUB_CONFIG_REF || "HEAD"}:hub.config.json`;
+  const d = await gql<{ organization: { repositories: { nodes: RepoNode[] } } }>(
+    `query($org:String!, $expr:String!){ organization(login:$org){ repositories(first:100, orderBy:{field:CREATED_AT, direction:ASC}){ nodes{
+      name id url isArchived
+      repositoryTopics(first:20){ nodes{ topic{ name } } }
+      object(expression:$expr){ ... on Blob{ text } }
+      milestones(first:20, states:OPEN, orderBy:{field:NUMBER, direction:ASC}){ nodes{ id title } }
+    } } } }`,
+    { org: ORG, expr },
+  );
+  const games: Game[] = [];
+  for (const r of d.organization.repositories.nodes) {
+    if (r.isArchived || !r.object) continue;
+    if (!r.repositoryTopics.nodes.some((t) => t.topic.name === "game")) continue;
+    try {
+      games.push({ repo: r.name, repoId: r.id, url: r.url, config: JSON.parse(r.object.text), milestones: r.milestones.nodes });
+    } catch {
+      console.warn(`${r.name}: hub.config.json is not valid JSON`);
+    }
+  }
+  return games;
+}
+
+const PROJECT_QUERY = `query($org:String!, $num:Int!, $after:String){ organization(login:$org){ projectV2(number:$num){
+  id
+  fields(first:50){ nodes{ ... on ProjectV2FieldCommon{ id name dataType } ... on ProjectV2SingleSelectField{ options{ id name } } } }
+  items(first:100, after:$after){
+    pageInfo{ hasNextPage endCursor }
+    nodes{
+      id isArchived
+      content{
+        __typename
+        ... on Issue{ id number title url closed body }
+        ... on DraftIssue{ id title body }
+      }
+      fieldValues(first:20){ nodes{
+        __typename
+        ... on ProjectV2ItemFieldTextValue{ text field{ ... on ProjectV2FieldCommon{ name } } }
+        ... on ProjectV2ItemFieldSingleSelectValue{ name field{ ... on ProjectV2FieldCommon{ name } } }
+        ... on ProjectV2ItemFieldMilestoneValue{ milestone{ title } field{ ... on ProjectV2FieldCommon{ name } } }
+      } }
+    }
+  }
+} } }`;
+
+type RawValue = { text?: string; name?: string; milestone?: { title: string }; field?: { name: string } };
+type RawItem = {
+  id: string;
+  isArchived: boolean;
+  content: { __typename: string; id: string; number?: number; title: string; url?: string; closed?: boolean; body: string } | null;
+  fieldValues: { nodes: RawValue[] };
+};
+
+export async function fetchProject(number: number): Promise<Project> {
+  let after: string | null = null;
+  let id = "";
+  const fields: Record<string, Field> = {};
+  const items: Item[] = [];
+  do {
+    type R = {
+      organization: {
+        projectV2: {
+          id: string;
+          fields: { nodes: Field[] };
+          items: { pageInfo: { hasNextPage: boolean; endCursor: string }; nodes: RawItem[] };
+        };
+      };
+    };
+    const d: R = await gql<R>(PROJECT_QUERY, { org: ORG, num: number, after });
+    const p = d.organization.projectV2;
+    id = p.id;
+    for (const f of p.fields.nodes) if (f.name) fields[f.name] = f;
+    for (const n of p.items.nodes) {
+      if (n.isArchived || !n.content) continue;
+      const values: Record<string, string> = {};
+      for (const v of n.fieldValues.nodes) {
+        const name = v.field?.name;
+        if (!name) continue;
+        const val = v.text ?? v.name ?? v.milestone?.title;
+        if (val != null) values[name] = val;
+      }
+      const c = n.content;
+      items.push({
+        id: n.id,
+        contentId: c.id,
+        kind: c.__typename === "Issue" ? "issue" : "draft",
+        number: c.number,
+        url: c.url,
+        closed: c.closed,
+        title: c.title,
+        body: c.body ?? "",
+        values,
+      });
+    }
+    after = p.items.pageInfo.hasNextPage ? p.items.pageInfo.endCursor : null;
+  } while (after);
+  return { id, number, fields, items };
+}
+
+// ---------- Writes ----------
+
+/** Set a project field by name. Empty value clears it. Single-select values are option names. */
+export async function setField(project: Project, itemId: string, fieldName: string, value: string): Promise<void> {
+  const field = project.fields[fieldName];
+  if (!field) throw new Error(`Project has no field "${fieldName}"`);
+  if (!value) {
+    await gql(
+      `mutation($p:ID!,$i:ID!,$f:ID!){ clearProjectV2ItemFieldValue(input:{projectId:$p, itemId:$i, fieldId:$f}){ clientMutationId } }`,
+      { p: project.id, i: itemId, f: field.id },
+    );
+    return;
+  }
+  let v: Record<string, string>;
+  if (field.options) {
+    const opt = field.options.find((o) => o.name === value);
+    if (!opt) throw new Error(`"${value}" is not an option of ${fieldName}`);
+    v = { singleSelectOptionId: opt.id };
+  } else {
+    v = { text: value };
+  }
+  await gql(
+    `mutation($p:ID!,$i:ID!,$f:ID!,$v:ProjectV2FieldValue!){ updateProjectV2ItemFieldValue(input:{projectId:$p, itemId:$i, fieldId:$f, value:$v}){ clientMutationId } }`,
+    { p: project.id, i: itemId, f: field.id, v },
+  );
+}
+
+export async function setFields(project: Project, itemId: string, values: Record<string, string>): Promise<void> {
+  for (const [k, v] of Object.entries(values)) await setField(project, itemId, k, v);
+}
+
+export async function renameItem(item: Item, title: string): Promise<void> {
+  if (item.kind === "issue") {
+    await gql(`mutation($id:ID!,$t:String!){ updateIssue(input:{id:$id, title:$t}){ clientMutationId } }`, { id: item.contentId, t: title });
+  } else {
+    await gql(`mutation($id:ID!,$t:String!){ updateProjectV2DraftIssue(input:{draftIssueId:$id, title:$t}){ clientMutationId } }`, {
+      id: item.contentId,
+      t: title,
+    });
+  }
+}
+
+export async function setIssueClosed(item: Item, closed: boolean): Promise<void> {
+  if (item.kind !== "issue") return;
+  const m = closed ? "closeIssue(input:{issueId:$id})" : "reopenIssue(input:{issueId:$id})";
+  await gql(`mutation($id:ID!){ ${m}{ clientMutationId } }`, { id: item.contentId });
+}
+
+/** New task = new issue in the game repo, added to its Tasks project, then fields set. */
+export async function createTask(
+  game: Game,
+  project: Project,
+  title: string,
+  body: string,
+  milestoneId: string | null,
+  values: Record<string, string>,
+): Promise<void> {
+  const d = await gql<{ createIssue: { issue: { id: string } } }>(
+    `mutation($r:ID!,$t:String!,$b:String,$m:ID){ createIssue(input:{repositoryId:$r, title:$t, body:$b, milestoneId:$m}){ issue{ id } } }`,
+    { r: game.repoId, t: title, b: body, m: milestoneId },
+  );
+  const a = await gql<{ addProjectV2ItemById: { item: { id: string } } }>(
+    `mutation($p:ID!,$c:ID!){ addProjectV2ItemById(input:{projectId:$p, contentId:$c}){ item{ id } } }`,
+    { p: project.id, c: d.createIssue.issue.id },
+  );
+  await setFields(project, a.addProjectV2ItemById.item.id, values);
+}
+
+export async function createAsset(project: Project, title: string, values: Record<string, string>): Promise<void> {
+  const d = await gql<{ addProjectV2DraftIssue: { projectItem: { id: string } } }>(
+    `mutation($p:ID!,$t:String!){ addProjectV2DraftIssue(input:{projectId:$p, title:$t}){ projectItem{ id } } }`,
+    { p: project.id, t: title },
+  );
+  await setFields(project, d.addProjectV2DraftIssue.projectItem.id, values);
+}
