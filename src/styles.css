@@ -178,3 +178,14 @@ select.cell { appearance: auto; }
 .wf-task { width: 100%; display: flex; justify-content: space-between; gap: 8px; align-items: center; border: 1px solid transparent; background: transparent; border-radius: 6px; padding: 4px 6px; text-align: left; }
 .wf-task:hover { border-color: var(--line); background: var(--bg); }
 .wf-task-title { min-width: 0; }
+
+/* Sounds */
+.sound-group { display: flex; flex-direction: column; gap: 8px; }
+.sounds { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; align-items: start; }
+.sound-card.busy-card { border: 2px solid var(--blue); }
+.sound-prompt { margin: 0; padding: 8px 10px; background: var(--bg); border-left: 3px solid var(--btn-line); border-radius: 6px; font-size: 13px; line-height: 1.45; white-space: pre-wrap; }
+.candidates { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.candidate { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.candidate audio { height: 32px; flex: 1 1 180px; min-width: 0; }
+.act.pick { border-color: var(--green); color: #1e6b49; }
+.act.pick:hover { background: #e3f3ea; }
