@@ -96,6 +96,7 @@ type RepoNode = {
   isArchived: boolean;
   repositoryTopics: { nodes: { topic: { name: string } }[] };
   object: { text: string } | null;
+  head: { text: string } | null;
   milestones: { nodes: Milestone[] };
 };
 
@@ -109,16 +110,18 @@ export async function fetchGames(): Promise<Game[]> {
       name id url isArchived
       repositoryTopics(first:20){ nodes{ topic{ name } } }
       object(expression:$expr){ ... on Blob{ text } }
+      head: object(expression:"HEAD:hub.config.json"){ ... on Blob{ text } }
       milestones(first:20, states:OPEN, orderBy:{field:NUMBER, direction:ASC}){ nodes{ id title } }
     } } } }`,
     { org: ORG, expr },
   );
   const games: Game[] = [];
   for (const r of d.organization.repositories.nodes) {
-    if (r.isArchived || !r.object) continue;
+    const cfg = r.object ?? r.head; // the branch override only applies to repos that have that branch
+    if (r.isArchived || !cfg) continue;
     if (!r.repositoryTopics.nodes.some((t) => t.topic.name === "game")) continue;
     try {
-      games.push({ repo: r.name, repoId: r.id, url: r.url, config: JSON.parse(r.object.text), milestones: r.milestones.nodes });
+      games.push({ repo: r.name, repoId: r.id, url: r.url, config: JSON.parse(cfg.text), milestones: r.milestones.nodes });
     } catch {
       console.warn(`${r.name}: hub.config.json is not valid JSON`);
     }
