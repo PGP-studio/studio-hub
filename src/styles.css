@@ -84,8 +84,8 @@ code { font-family: ui-monospace, monospace; font-size: 12px; background: var(--
 .warn { font-size: 12px; background: var(--warn-bg); color: var(--warn-fg); border-radius: 6px; padding: 6px 8px; }
 .act { border: 1px solid var(--btn-line); background: var(--card); border-radius: 8px; padding: 8px 10px; font-size: 13px; font-weight: 500; min-height: 36px; text-align: left; }
 .act:hover { border-color: var(--ink); }
-.card-actions { display: flex; gap: 6px; }
-.card-actions .act { flex: 1; }
+.card-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.card-actions .act { flex: 1 1 auto; white-space: nowrap; }
 .card-actions .small-act { flex: 0 0 auto; text-align: center; color: var(--muted); }
 .btn.danger { color: #8a2a1a; border-color: #e2b8ad; }
 .btn.danger:hover { background: #fbeae6; }
