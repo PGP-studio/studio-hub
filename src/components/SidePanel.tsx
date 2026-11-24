@@ -23,7 +23,7 @@ export default function SidePanel({ games, tasks }: { games: Game[]; tasks: Reco
     <aside className="side">
       <h2>Who's working now</h2>
       {[...byMember].map(([m, list]) => (
-        <PersonCard key={m.name} initials={initials(m.name)} name={m.name} owns={m.owns} bg={m.bg} fg={m.fg} list={list} multi={multi} />
+        <PersonCard key={m.name} initials={initials(m.login ?? m.name)} name={m.login ?? m.name} owns={m.login ? `${m.name} · ${m.owns}` : m.owns} bg={m.bg} fg={m.fg} list={list} multi={multi} />
       ))}
       {[...others].map(([w, list]) => (
         <PersonCard key={w} initials={initials(w)} name={w} owns="Not on the team list" bg="#EFEDE8" fg="#5E5B55" list={list} multi={multi} />
